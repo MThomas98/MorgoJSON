@@ -10,7 +10,7 @@ public:
     std::string getData() const;
 
 private:
-    
+    void parse(std::string_view data);
 
     std::string m_data;
 };

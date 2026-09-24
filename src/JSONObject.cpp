@@ -26,3 +26,8 @@ std::string JSONObject::getData() const
 {
     return m_data;
 }
+
+void JSONObject::parse(std::string_view data)
+{
+    
+}
