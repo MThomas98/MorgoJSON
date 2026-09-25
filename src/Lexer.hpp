@@ -24,8 +24,6 @@ private:
     Token consumeString();
     Token consumeNumber();
 
-    
-
     std::string_view m_data;
     std::size_t m_pos = 0;
     std::size_t m_col = 0, m_row = 0;

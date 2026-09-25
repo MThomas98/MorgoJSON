@@ -2,6 +2,8 @@
 
 #include "Lexer.hpp"
 
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -154,6 +156,47 @@ TEST(Lexer, Integers)
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("-7").value, -7.0);
 }
 
+TEST(Lexer, NegativeZeroKeepsItsSign)
+{
+    for (std::string_view input : {"-0", "-0.0"})
+    {
+        SCOPED_TRACE(input);
+        double const value = nextAs<Token::Number>(input).value;
+        EXPECT_EQ(value, 0.0);
+        EXPECT_TRUE(std::signbit(value));
+    }
+}
+
+TEST(Lexer, ZeroWithExponent)
+{
+    // Zero stays zero however large the exponent, so it's never out of range.
+    for (std::string_view input : {"0e0", "0E-0", "0e400"})
+    {
+        SCOPED_TRACE(input);
+        EXPECT_EQ(nextAs<Token::Number>(input).value, 0.0);
+    }
+}
+
+TEST(Lexer, LargeNumbers)
+{
+    EXPECT_EQ(nextAs<Token::Number>("1.7976931348623157e308").value,
+              std::numeric_limits<double>::max());
+    // 2^53 + 1 isn't representable, so it rounds to 2^53.
+    EXPECT_EQ(nextAs<Token::Number>("9007199254740993").value, 9007199254740992.0);
+}
+
+TEST(Lexer, TooLargeNumbersThrow)
+{
+    std::string const huge_integer = "1" + std::string(400, '0');
+    std::string_view const inputs[] = {"1.8e308", "1e400", "-1e400", "1e+400", huge_integer};
+    for (std::string_view input : inputs)
+    {
+        SCOPED_TRACE(input);
+        Lexer lexer{input};
+        EXPECT_THROW(lexer.next(), std::runtime_error);
+    }
+}
+
 TEST(Lexer, Fractions)
 {
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("3.5").value, 3.5);
@@ -167,6 +210,73 @@ TEST(Lexer, Exponents)
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("-2.5e-2").value, -0.025);
 }
 
+TEST(Lexer, SmallNumbers)
+{
+    EXPECT_DOUBLE_EQ(nextAs<Token::Number>("1e-300").value, 1e-300);
+    EXPECT_DOUBLE_EQ(nextAs<Token::Number>("-2.5e-10").value, -2.5e-10);
+    // Smallest positive subnormal double
+    EXPECT_EQ(nextAs<Token::Number>("5e-324").value, std::numeric_limits<double>::denorm_min());
+}
+
+TEST(Lexer, TooSmallNumbersUnderflowToZero)
+{
+    // Valid JSON, but smaller than any double: rounds to zero, keeping its sign.
+    double const positive = nextAs<Token::Number>("1e-400").value;
+    EXPECT_EQ(positive, 0.0);
+    EXPECT_FALSE(std::signbit(positive));
+
+    double const negative = nextAs<Token::Number>("-1e-400").value;
+    EXPECT_EQ(negative, 0.0);
+    EXPECT_TRUE(std::signbit(negative));
+}
+
+TEST(Lexer, LongFractionUnderflowsWithoutExponent)
+{
+    std::string const tiny_fraction = "0." + std::string(400, '0') + "1";
+    EXPECT_EQ(nextAs<Token::Number>(tiny_fraction).value, 0.0);
+}
+
+TEST(Lexer, LongIntegerOverflowsDespiteNegativeExponent)
+{
+    std::string const huge_with_negative_exponent = "1" + std::string(500, '0') + "e-100";
+    Lexer lexer{huge_with_negative_exponent};
+    EXPECT_THROW(lexer.next(), std::runtime_error);
+}
+
+TEST(Lexer, ExponentTooBigForLongLong)
+{
+    // The exponent alone decides these, even with a mantissa below 1.
+    for (std::string_view input : {"0.0001e99999999999999999999", "0.0001e+99999999999999999999",
+                                   "1e99999999999999999999"})
+    {
+        SCOPED_TRACE(input);
+        Lexer lexer{input};
+        EXPECT_THROW(lexer.next(), std::runtime_error);
+    }
+
+    for (std::string_view input : {"1e-99999999999999999999", "1000e-99999999999999999999"})
+    {
+        SCOPED_TRACE(input);
+        EXPECT_EQ(nextAs<Token::Number>(input).value, 0.0);
+    }
+}
+
+TEST(Lexer, NegativeNumberWithExponentTooBigForLongLong)
+{
+    // A negative number with a huge positive exponent is hugely negative: overflow.
+    for (std::string_view input : {"-0.0001e99999999999999999999", "-1e+99999999999999999999"})
+    {
+        SCOPED_TRACE(input);
+        Lexer lexer{input};
+        EXPECT_THROW(lexer.next(), std::runtime_error);
+    }
+
+    // With a huge negative exponent it underflows to -0.0, keeping its sign.
+    double const value = nextAs<Token::Number>("-1e-99999999999999999999").value;
+    EXPECT_EQ(value, 0.0);
+    EXPECT_TRUE(std::signbit(value));
+}
+
 TEST(Lexer, NumbersInArray)
 {
     expectTokens<Token::LBracket, Token::Number, Token::Comma, Token::Number,
@@ -177,11 +287,32 @@ TEST(Lexer, LeadingZeroIsNotPartOfTheNumber)
 {
     // "01" lexes as 0 then 1; the parser rejects two numbers in a row.
     expectTokens<Token::Number, Token::Number>("01");
+    expectTokens<Token::Number, Token::Number>("-01");
+    expectTokens<Token::Number, Token::Number>("00");
+}
+
+TEST(Lexer, NumberEndsAtNonNumberCharacter)
+{
+    expectTokens<Token::Number, Token::Number>("1 2");
+    expectTokens<Token::LBracket, Token::Number, Token::RBracket>("[-0]");
+}
+
+TEST(Lexer, ThrowsOnCharacterAfterNumber)
+{
+    // The number itself lexes; the stray character after it is the error.
+    for (std::string_view input : {"1.5.5", "1e5e5", "1x", "0x1F"})
+    {
+        SCOPED_TRACE(input);
+        Lexer lexer{input};
+        expectNext<Token::Number>(lexer);
+        EXPECT_THROW(lexer.next(), std::runtime_error);
+    }
 }
 
 TEST(Lexer, MalformedNumbersThrow)
 {
-    for (std::string_view input : {"-", "1.", "1.e5", "1e", "1e+", "-a"})
+    for (std::string_view input : {"-", "1.", "1.e5", "1e", "1e+", "-a",
+                                   "+1", ".5", "--1", "-e5", "1e-", "-Infinity"})
     {
         SCOPED_TRACE(input);
         Lexer lexer{input};

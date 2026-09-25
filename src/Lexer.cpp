@@ -1,8 +1,8 @@
 #include "Lexer.hpp"
-#include "Tokens.hpp"
 
 #include <algorithm>
 #include <cassert>
+#include <charconv>
 #include <format>
 #include <stdexcept>
 #include <string_view>
@@ -171,8 +171,14 @@ Token Lexer::consumeNumber()
     if (m_data[m_pos] == '-') ++m_pos;
     
     // -- Integer part --
-    if (!atEnd() && m_data[m_pos] == '0') ++m_pos;
-    else consumeDigits();
+    if (!atEnd() && m_data[m_pos] == '0')
+    {
+        ++m_pos;
+    }
+    else 
+    {
+        consumeDigits();
+    }
 
     // -- Fractional part --
     if (!atEnd() && m_data[m_pos] == '.')
@@ -200,13 +206,69 @@ Token Lexer::consumeNumber()
     }
 
     std::string_view const value_str = m_data.substr(start, m_pos - start);
-    double value{};
+    double value = 0.0;
     [[maybe_unused]] auto const [ptr, error] = 
         std::from_chars(value_str.data(), value_str.data() + value_str.size(), value);
 
     if (error == std::errc::result_out_of_range)
     {
-        throw std::runtime_error(std::format("number {} is out of range", value_str));
+        // If we've entered here, the number is either very large or incredibly small.
+        // If number is very small, need to round it to (+-)0.
+        //
+        // To achieve this break the number down in to mantissa and exponent before the "E"
+        // (if it exists), then add the exponent given after E.
+        // If this comes out to less than 0, then the number must be small and 
+        // we cna round to 0.
+
+        std::size_t const e_index = std::min(value_str.find_first_of("eE"), value_str.size());
+        std::string_view mantissa = value_str.substr(0, e_index);
+
+        std::size_t point_index = std::min(mantissa.find_first_of('.'), mantissa.size());
+        std::size_t first_sig_digit_index = mantissa.find_first_of("123456789");
+        
+        long long exponent = point_index > first_sig_digit_index ?
+            static_cast<long long>(point_index - first_sig_digit_index - 1) :
+            static_cast<long long>(point_index - first_sig_digit_index);
+
+        if (e_index < value_str.size())
+        {
+            std::string_view e_str = value_str.substr(e_index + 1);
+            if (e_str.starts_with('+')) e_str.remove_prefix(1);
+            
+            long long e_value = 0;
+            [[maybe_unused]] auto const [e_ptr, e_error] = 
+                std::from_chars(e_str.data(), e_str.data() + e_str.size(), e_value);
+
+            if (e_error == std::errc::result_out_of_range)
+            {
+                if (e_str.starts_with('-'))
+                {
+                    // The number after E is very negative, so just round to 0 now and return 
+                    value = value_str.starts_with('-') ? -0.0 : +0.0;
+                    return makeToken(Token::Number{value});
+                }
+                else
+                {
+                    // The number after E is very large, so just throw now
+                    throw std::runtime_error(
+                        std::format("number {} is out of range", value_str));
+                }
+            }
+            else 
+            {
+                exponent += e_value;
+            }
+        }
+
+        if (exponent < 0)
+        {
+            value = value_str.starts_with('-') ? -0.0 : +0.0;
+        }
+        else 
+        {
+            throw std::runtime_error(
+                std::format("number {} is out of range", value_str));
+        }
     }
 
     return makeToken(Token::Number{value});
