@@ -14,7 +14,6 @@ public:
 
 private:
     bool atEnd() const;
-    char current() const;
 
     char advance();
     char advancePastWhitespace();
@@ -24,6 +23,8 @@ private:
     void consumeKeyword(std::string_view keyword);
     Token consumeString();
     Token consumeNumber();
+
+    
 
     std::string_view m_data;
     std::size_t m_pos = 0;

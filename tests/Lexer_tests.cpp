@@ -147,39 +147,39 @@ TEST(Lexer, ThrowsAfterValidTokens)
 
 // ---- Numbers (not implemented yet: remove DISABLED_ once they are) ----
 
-TEST(Lexer, DISABLED_Integers)
+TEST(Lexer, Integers)
 {
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("0").value, 0.0);
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("42").value, 42.0);
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("-7").value, -7.0);
 }
 
-TEST(Lexer, DISABLED_Fractions)
+TEST(Lexer, Fractions)
 {
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("3.5").value, 3.5);
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("-0.25").value, -0.25);
 }
 
-TEST(Lexer, DISABLED_Exponents)
+TEST(Lexer, Exponents)
 {
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("1e3").value, 1000.0);
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("1E+3").value, 1000.0);
     EXPECT_DOUBLE_EQ(nextAs<Token::Number>("-2.5e-2").value, -0.025);
 }
 
-TEST(Lexer, DISABLED_NumbersInArray)
+TEST(Lexer, NumbersInArray)
 {
     expectTokens<Token::LBracket, Token::Number, Token::Comma, Token::Number,
                  Token::RBracket>("[1, -2.5]");
 }
 
-TEST(Lexer, DISABLED_LeadingZeroIsNotPartOfTheNumber)
+TEST(Lexer, LeadingZeroIsNotPartOfTheNumber)
 {
     // "01" lexes as 0 then 1; the parser rejects two numbers in a row.
     expectTokens<Token::Number, Token::Number>("01");
 }
 
-TEST(Lexer, DISABLED_MalformedNumbersThrow)
+TEST(Lexer, MalformedNumbersThrow)
 {
     for (std::string_view input : {"-", "1.", "1.e5", "1e", "1e+", "-a"})
     {

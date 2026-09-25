@@ -3,13 +3,6 @@
 #include <string>
 #include <variant>
 
-enum class TokenChar : char
-{
-    left_brace = '{',
-    right_brace = '}',
-    newline = '\n',
-};
-
 struct Token
 {
     struct LBrace {}; 

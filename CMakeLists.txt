@@ -8,6 +8,7 @@ add_subdirectory(src)
 
 option(MORGOJSON_BUILD_TESTS "Build tests" ON)
 if(MORGOJSON_BUILD_TESTS)
-    enable_testing()
+    set_property(GLOBAL PROPERTY CTEST_TARGETS_ADDED 1)
+    include(CTest)
     add_subdirectory(tests)
 endif()

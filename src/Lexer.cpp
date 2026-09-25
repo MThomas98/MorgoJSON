@@ -1,6 +1,7 @@
 #include "Lexer.hpp"
 #include "Tokens.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <format>
 #include <stdexcept>
@@ -30,7 +31,8 @@ namespace
             case 't':  return '\t';
             // TODO: \uXXXX parsing 
             default: 
-                throw std::runtime_error(std::format("invalid escape character \\{}", c));
+                throw std::runtime_error(
+                    std::format("invalid escape character \\{}", c));
         }
     }
 }
@@ -64,18 +66,14 @@ Token Lexer::next()
             return consumeNumber();
 
         default:
-            throw std::runtime_error(std::format("unexpected character '{}'", c));
+            throw std::runtime_error(
+                std::format("unexpected character '{}'", c));
     }
 }
 
 bool Lexer::atEnd() const
 {
     return m_pos >= m_data.size();
-}
-
-char Lexer::current() const
-{
-    return atEnd() ? NULL_C : m_data[m_pos];
 }
 
 char Lexer::advance()
@@ -103,7 +101,8 @@ void Lexer::consumeKeyword(std::string_view keyword)
 {
     if (!m_data.substr(m_pos - 1).starts_with(keyword))
     {
-        throw std::runtime_error(std::format("invalid literal, expected '{}'", keyword));
+        throw std::runtime_error(
+            std::format("invalid literal, expected '{}'", keyword));
     }
 
     m_pos += keyword.size() - 1;
@@ -147,5 +146,68 @@ Token Lexer::consumeString()
 
 Token Lexer::consumeNumber()
 {
-    return makeToken(Token::Number{0});
+    constexpr std::string_view INT_CHARS = "0123456789";
+
+    auto const consumeDigits = 
+        [this, &INT_CHARS]()
+        {
+            std::size_t stop_index = 
+                std::min(m_data.find_first_not_of(INT_CHARS, m_pos), m_data.size());
+            
+            if (stop_index == m_pos)
+            {
+                throw std::runtime_error(atEnd() ?
+                    std::format("unexpected EOF in number") :
+                    std::format("saw unexpected character {} in number", m_data[m_pos]));
+            }
+
+            m_pos = stop_index;
+        };
+
+    --m_pos; // Unconsume first digit
+    std::size_t start = m_pos;
+
+    // -- Minus part --
+    if (m_data[m_pos] == '-') ++m_pos;
+    
+    // -- Integer part --
+    if (!atEnd() && m_data[m_pos] == '0') ++m_pos;
+    else consumeDigits();
+
+    // -- Fractional part --
+    if (!atEnd() && m_data[m_pos] == '.')
+    {
+        ++m_pos;
+        consumeDigits();
+    }
+
+    // -- Exponential part --
+    if (!atEnd() && (m_data[m_pos] == 'e' || m_data[m_pos] == 'E'))
+    {
+        ++m_pos;
+        
+        if (atEnd())
+        {
+            throw std::runtime_error("saw exponent, but no integer afterwards");
+        }
+
+        if (m_data[m_pos] == '+' || m_data[m_pos] == '-')
+        {
+            ++m_pos;
+        }
+        
+        consumeDigits();
+    }
+
+    std::string_view const value_str = m_data.substr(start, m_pos - start);
+    double value{};
+    [[maybe_unused]] auto const [ptr, error] = 
+        std::from_chars(value_str.data(), value_str.data() + value_str.size(), value);
+
+    if (error == std::errc::result_out_of_range)
+    {
+        throw std::runtime_error(std::format("number {} is out of range", value_str));
+    }
+
+    return makeToken(Token::Number{value});
 }
