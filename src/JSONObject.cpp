@@ -1,7 +1,7 @@
 #include <morgojson/JSONObject.hpp>
 
 #include <fstream>
-#include <string>
+#include <system_error>
 
 bool JSONObject::read(std::filesystem::path const& file_path)
 {

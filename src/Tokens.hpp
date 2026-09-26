@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <variant>
 
@@ -23,7 +24,7 @@ struct Token
         Null, EndOfFile, Bool, Number, String>;
 
     template <typename T>
-    bool isType()
+    bool isType() const
     {
         return std::holds_alternative<T>(value);
     }

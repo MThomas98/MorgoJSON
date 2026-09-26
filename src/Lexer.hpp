@@ -20,18 +20,14 @@ private:
 class Lexer
 {
 public:
-    Lexer(std::string_view data);
+    explicit Lexer(std::string_view data);
 
     Token next();
     Token peek();
 
 private:
     bool atEnd() const;
-
-    char advance();
     void skipWhitespace();
-
-    char lookAhead(std::size_t n = 1) const;
 
     Token makeToken(Token::TokenValueType token) const;
 

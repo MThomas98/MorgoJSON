@@ -1,20 +1,15 @@
 #include "Lexer.hpp"
 
 #include <algorithm>
-#include <cassert>
 #include <charconv>
 #include <cstdint>
 #include <format>
 #include <limits>
 #include <optional>
-#include <stdexcept>
-#include <string_view>
 #include <utility>
 
 namespace
 {
-    constexpr char NULL_C = '\0';
-
     bool isWhitespace(char c)
     {
         return c == ' ' || c == '\t' || c == '\n' || c == '\r';
@@ -54,6 +49,81 @@ namespace
             default:   return std::nullopt;
         }
     }
+
+    bool underflowed(std::string_view number)
+    {
+        std::size_t const e_index = std::min(number.find_first_of("eE"), number.size());
+        std::string_view const mantissa = number.substr(0, e_index);
+
+        // Power of ten of the mantissa's first significant digit,
+        // e.g. 1 for "12.5" (1.25e1) and -2 for "0.01" (1e-2).
+        std::size_t const point_index = std::min(mantissa.find('.'), mantissa.size());
+        std::size_t const first_sig_digit_index = mantissa.find_first_of("123456789");
+        long long const exponent = point_index > first_sig_digit_index ?
+            static_cast<long long>(point_index - first_sig_digit_index - 1) :
+            static_cast<long long>(point_index - first_sig_digit_index);
+
+        if (e_index == number.size()) return exponent < 0;
+
+        std::string_view e_str = number.substr(e_index + 1);
+        if (e_str.starts_with('+')) e_str.remove_prefix(1);
+
+        long long e_value = 0;
+        auto const [e_ptr, e_error] = std::from_chars(e_str.data(), e_str.data() + e_str.size(), e_value);
+
+        // The exponent alone is too big for a long long, or adding the two
+        // would overflow: either way the exponent's sign decides.
+        if (e_error == std::errc::result_out_of_range) return e_str.starts_with('-');
+        if (e_value > 0 && exponent > std::numeric_limits<long long>::max() - e_value) return false;
+        if (e_value < 0 && exponent < std::numeric_limits<long long>::min() - e_value) return true;
+
+        return exponent + e_value < 0;
+    }
+
+    bool isHighSurrogate(std::uint32_t unit)
+    { 
+        return unit >= 0xD800 && unit <= 0xDBFF; 
+    }
+    bool isLowSurrogate(std::uint32_t unit)
+    {
+        return unit >= 0xDC00 && unit <= 0xDFFF; }
+
+    std::optional<std::uint16_t> parseHex4(std::string_view hex)
+    {
+        if (hex.size() != 4) return std::nullopt;
+
+        std::uint16_t value = 0;
+        auto const [ptr, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), value, 16);
+        if (ec != std::errc{} || ptr != hex.data() + hex.size()) return std::nullopt;
+
+        return value;
+    }
+
+    void appendUtf8(std::string& str, std::uint32_t code_point)
+    {
+        if (code_point < 0x80)
+        {
+            str += static_cast<char>(code_point);
+        }
+        else if (code_point < 0x800)
+        {
+            str += static_cast<char>(0xC0 | (code_point >> 6));
+            str += static_cast<char>(0x80 | (0x3F & code_point));
+        }
+        else if (code_point < 0x10000)
+        {
+            str += static_cast<char>(0xE0 | (code_point >> 12));
+            str += static_cast<char>(0x80 | (0x3F & (code_point >> 6)));
+            str += static_cast<char>(0x80 | (0x3F & code_point));
+        }
+        else
+        {
+            str += static_cast<char>(0xF0 | (code_point >> 18));
+            str += static_cast<char>(0x80 | (0x3F & (code_point >> 12)));
+            str += static_cast<char>(0x80 | (0x3F & (code_point >> 6)));
+            str += static_cast<char>(0x80 | (0x3F & code_point));
+        }
+    }
 }
 
 
@@ -85,7 +155,7 @@ Token Lexer::next()
     char const c = m_data[m_pos];
     switch (c)
     {
-        case NULL_C: error("saw invalid null character");
+        case '\0': error("saw invalid null character");
 
         case '{': return consumeChar(Token::LBrace{});
         case '}': return consumeChar(Token::RBrace{});
@@ -131,11 +201,6 @@ bool Lexer::atEnd() const
     return m_pos >= m_data.size();
 }
 
-char Lexer::advance()
-{
-    return atEnd() ? NULL_C : m_data[m_pos++];
-}
-
 void Lexer::skipWhitespace()
 {
     while (!atEnd() && isWhitespace(m_data[m_pos]))
@@ -150,13 +215,6 @@ void Lexer::skipWhitespace()
         ++m_pos;
     }
 }
-
-char Lexer::lookAhead(std::size_t n) const
-{
-    if (m_pos + n >= m_data.size()) return NULL_C;
-
-    return m_data[m_pos + n];
-}  
 
 Token Lexer::makeToken(Token::TokenValueType token) const
 {
@@ -238,10 +296,10 @@ Token Lexer::consumeString()
 
 Token Lexer::consumeNumber()
 {
-    constexpr std::string_view INT_CHARS = "0123456789";
+    static constexpr std::string_view INT_CHARS = "0123456789";
 
-    auto const consumeDigits = 
-        [this, &INT_CHARS]()
+    auto const consumeDigits =
+        [this]()
         {
             std::size_t stop_index = 
                 std::min(m_data.find_first_not_of(INT_CHARS, m_pos), m_data.size());
@@ -303,74 +361,13 @@ Token Lexer::consumeNumber()
 
     if (ec == std::errc::result_out_of_range)
     {
-        // If we've entered here, the number is either very large or very small.
-        // If number is very small, need to round it to (+-)0.
-        //
-        // To achieve this break the number down in to mantissa and exponent before the "E"
-        // (if it exists), then add the exponent value given after E.
-        // If this comes out to less than 0, then the number must be small and 
-        // we can round to 0.
-
-        std::size_t const e_index = std::min(value_str.find_first_of("eE"), value_str.size());
-        std::string_view mantissa = value_str.substr(0, e_index);
-
-        std::size_t point_index = std::min(mantissa.find_first_of('.'), mantissa.size());
-        std::size_t first_sig_digit_index = mantissa.find_first_of("123456789");
-        
-        long long exponent = point_index > first_sig_digit_index ?
-            static_cast<long long>(point_index - first_sig_digit_index - 1) :
-            static_cast<long long>(point_index - first_sig_digit_index);
-
-        if (e_index < value_str.size())
+        // Too small for a double rounds to 0, keeping its sign; too large is an error.
+        if (!underflowed(value_str))
         {
-            std::string_view e_str = value_str.substr(e_index + 1);
-            if (e_str.starts_with('+')) e_str.remove_prefix(1);
-            
-            long long e_value = 0;
-            [[maybe_unused]] auto const [e_ptr, e_error] = 
-                std::from_chars(e_str.data(), e_str.data() + e_str.size(), e_value);
-
-            if (e_error == std::errc::result_out_of_range)
-            {
-                if (e_str.starts_with('-'))
-                {
-                    // The number after E is very negative, so just round to 0 now and return 
-                    value = value_str.starts_with('-') ? -0.0 : +0.0;
-                    return makeToken(Token::Number{value});
-                }
-                else
-                {
-                    // The number after E is very large, so just throw now
-                    errorAt(m_token_start,
-                        std::format("number {} is out of range", value_str));
-                }
-            }
-            else 
-            {
-                // Prevent an overflow when adding exponent and e-value
-                if (e_value > 0 && exponent > std::numeric_limits<long long>::max() - e_value)
-                {
-                    errorAt(m_token_start, std::format("number {} is out of range", value_str));
-                }
-                if (e_value < 0 && exponent < std::numeric_limits<long long>::min() - e_value)
-                {
-                    value = value_str.starts_with('-') ? -0.0 : +0.0;
-                    return makeToken(Token::Number{value});
-                }
-
-                exponent += e_value;
-            }
+            errorAt(m_token_start, std::format("number {} is out of range", value_str));
         }
 
-        if (exponent < 0)
-        {
-            value = value_str.starts_with('-') ? -0.0 : +0.0;
-        }
-        else 
-        {
-            errorAt(m_token_start,
-                std::format("number {} is out of range", value_str));
-        }
+        value = value_str.starts_with('-') ? -0.0 : +0.0;
     }
 
     return makeToken(Token::Number{value});
@@ -379,84 +376,55 @@ Token Lexer::consumeNumber()
 void 
 Lexer::appendUnicode(std::string& str)
 {
-    constexpr std::string_view HEX_CHARS = "0123456789ABCDEF";
-    
+    auto const readHex4 =
+        [this]()
+        {
+            std::string_view const hex_str = m_data.substr(m_pos, 4);
+            if (hex_str.size() != 4)
+            {
+                error("not enough characters in unicode hex sequence");
+            }
+
+            std::optional<std::uint16_t> const unit = parseHex4(hex_str);
+            if (!unit)
+            {
+                error("invalid hex digit in unicode hex sequence");
+            }
+
+            m_pos += 4;
+            return *unit;
+        };
+
     ++m_pos; // Move past u
 
-    std::string_view hex_str = m_data.substr(m_pos, 4);
-    if (hex_str.size() != 4)
+    std::size_t const unit_start = m_pos;
+    std::uint16_t const unit = readHex4();
+
+    if (isLowSurrogate(unit))
     {
-        error("not enough characters in unicode hex sequence");
+        errorAt(unit_start, "saw low surrogate unicode value before a high surrogate");
     }
 
-    std::uint32_t code_point = 0;
-    auto const [ptr, ec] = std::from_chars(hex_str.data(), hex_str.data() + 4, code_point, 16);
-    if (ec != std::errc{} || ptr != hex_str.data() + 4)
+    if (!isHighSurrogate(unit))
     {
-        error("invalid hex digit in unicode hex sequence");
+        appendUtf8(str, unit);
+        return;
     }
 
-    m_pos += 4; // Move past the hex digits
-
-    // High surrogate - expect a low surrogate
-    if (code_point >= 0xD800 && code_point <= 0xDBFF)
+    // High surrogate - must be followed by a low surrogate
+    if (m_data.substr(m_pos, 2) != "\\u")
     {
-        if (m_data.substr(m_pos, 2) != "\\u")
-        {
-            error("expected low surrogate unicode hex sequence");
-        }
-
-        hex_str = m_data.substr(m_pos + 2, 4);
-        if (hex_str.size() != 4)
-        {
-            error("not enough characters in unicode hex sequence");
-        }
-
-        std::uint16_t high_surrogate = static_cast<std::uint16_t>(code_point);
-        std::uint16_t low_surrogate = 0;
-        auto const [low_ptr, low_error] = std::from_chars(hex_str.data(), hex_str.data() + 4, low_surrogate, 16);
-        if (low_error != std::errc{} || low_ptr != hex_str.data() + 4)
-        {
-            error("invalid hex digit in unicode hex sequence");
-        }
-
-        if (low_surrogate < 0xDC00 || low_surrogate > 0xDFFF)
-        {
-            error("unicode sequence after high surrogate not a low surrogate");
-        }
-
-        m_pos += 6; // Move past \u and the hex digits
-
-        code_point = 0x10000 + ((high_surrogate - 0xD800) << 10) + (low_surrogate - 0xDC00);
-    }
-    // Low surrogate before a high surrogate - invalid
-    else if (code_point >= 0xDC00 && code_point <= 0xDFFF)
-    {
-        error("saw low surrogate unicode value before a high surrogate");
+        error("expected low surrogate unicode hex sequence");
     }
 
-    // Convert code_point to UTF-8 (as that's what our string token wants)
-    // and append.
-    if (code_point < 0x80)
+    m_pos += 2; // Move past \u
+
+    std::size_t const low_start = m_pos;
+    std::uint16_t const low_surrogate = readHex4();
+    if (!isLowSurrogate(low_surrogate))
     {
-        str += static_cast<char>(code_point);
+        errorAt(low_start, "unicode sequence after high surrogate not a low surrogate");
     }
-    else if (code_point < 0x800)
-    {
-        str += static_cast<char>(0xC0 | (code_point >> 6));
-        str += static_cast<char>(0x80 | (0x3F & code_point));
-    }
-    else if (code_point < 0x10000)
-    {
-        str += static_cast<char>(0xE0 | (code_point >> 12));
-        str += static_cast<char>(0x80 | (0x3F & (code_point >> 6)));
-        str += static_cast<char>(0x80 | (0x3F & code_point));
-    }
-    else
-    {
-        str += static_cast<char>(0xF0 | (code_point >> 18));
-        str += static_cast<char>(0x80 | (0x3F & (code_point >> 12)));
-        str += static_cast<char>(0x80 | (0x3F & (code_point >> 6)));
-        str += static_cast<char>(0x80 | (0x3F & code_point));
-    }
+
+    appendUtf8(str, 0x10000 + ((unit - 0xD800u) << 10) + (low_surrogate - 0xDC00u));
 }
