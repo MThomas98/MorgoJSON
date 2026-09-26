@@ -140,6 +140,17 @@ TEST(Lexer, UnexpectedCharacterThrows)
     }
 }
 
+TEST(Lexer, ErrorsAreLexerErrors)
+{
+    // One input from each part of the lexer
+    for (std::string_view input : {"@", "tru", "1e", "\"abc", "\"\\x\"", "\"\\uZZZZ\"", "1e400"})
+    {
+        SCOPED_TRACE(input);
+        Lexer lexer{input};
+        EXPECT_THROW(lexer.next(), LexerError);
+    }
+}
+
 TEST(Lexer, ThrowsAfterValidTokens)
 {
     Lexer lexer{"[ ; ]"};
@@ -524,4 +535,79 @@ TEST(Lexer, MalformedStringsThrow)
         Lexer lexer{input};
         EXPECT_THROW(lexer.next(), std::runtime_error) << "input was:" << input;
     }
+}
+
+// ---- Positions ----
+
+namespace
+{
+    void expectPosition(Token const& token, std::size_t row, std::size_t col)
+    {
+        EXPECT_EQ(token.row, row);
+        EXPECT_EQ(token.col, col);
+    }
+
+    // Lexes input until it throws, then checks where the error was reported.
+    void expectErrorAt(std::string_view input, std::size_t row, std::size_t col)
+    {
+        SCOPED_TRACE(testing::Message() << "input: " << input);
+        Lexer lexer{input};
+        try
+        {
+            while (!lexer.next().isType<Token::EndOfFile>()) {}
+            ADD_FAILURE() << "expected a LexerError";
+        }
+        catch (LexerError const& e)
+        {
+            EXPECT_EQ(e.row(), row) << e.what();
+            EXPECT_EQ(e.col(), col) << e.what();
+        }
+    }
+}
+
+TEST(Lexer, TokenPositions)
+{
+    Lexer lexer{"[\n  1,\n  \"a\"]"};
+    expectPosition(lexer.next(), 1, 1);  // [
+    expectPosition(lexer.next(), 2, 3);  // 1
+    expectPosition(lexer.next(), 2, 4);  // ,
+    expectPosition(lexer.next(), 3, 3);  // "a"
+    expectPosition(lexer.next(), 3, 6);  // ]
+    expectPosition(lexer.next(), 3, 7);  // end of file
+}
+
+TEST(Lexer, TokenPositionsAfterMultiCharacterTokens)
+{
+    Lexer lexer{R"(true, -1.5e3, "ab\ncd", null)"};
+    expectPosition(lexer.next(), 1, 1);   // true
+    expectPosition(lexer.next(), 1, 5);   // ,
+    expectPosition(lexer.next(), 1, 7);   // -1.5e3
+    expectPosition(lexer.next(), 1, 13);  // ,
+    expectPosition(lexer.next(), 1, 15);  // "ab\ncd"
+    expectPosition(lexer.next(), 1, 23);  // ,
+    expectPosition(lexer.next(), 1, 25);  // null
+}
+
+TEST(Lexer, CrLfCountsAsOneLine)
+{
+    Lexer lexer{"[\r\n  1,\r\n\r\n2]"};
+    expectPosition(lexer.next(), 1, 1);  // [
+    expectPosition(lexer.next(), 2, 3);  // 1
+    expectPosition(lexer.next(), 2, 4);  // ,
+    expectPosition(lexer.next(), 4, 1);  // 2
+}
+
+TEST(Lexer, ErrorPositions)
+{
+    // Errors point at the offending character...
+    expectErrorAt("[\n  1,\n  x]", 3, 3);     // unexpected character
+    expectErrorAt("  tru", 1, 3);             // truncated keyword (start of keyword)
+    expectErrorAt(R"("ab\xcd")", 1, 5);       // invalid escape character
+    expectErrorAt("\"a\tb\"", 1, 3);          // raw control character
+    expectErrorAt(R"("\u12G4")", 1, 4);       // bad hex digits (start of the hex)
+    expectErrorAt("1.x", 1, 3);               // missing fraction digits
+
+    // ...unless the whole token is the problem, when they point at its start
+    expectErrorAt("[1,\n 1e400]", 2, 2);      // number out of range
+    expectErrorAt("[\n  \"abc", 2, 3);        // unterminated string
 }
