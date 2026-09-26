@@ -16,7 +16,7 @@ private:
     bool atEnd() const;
 
     char advance();
-    char advancePastWhitespace();
+    void skipWhitespace();
 
     char lookAhead(std::size_t n = 1) const;
 

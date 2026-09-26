@@ -147,7 +147,25 @@ TEST(Lexer, ThrowsAfterValidTokens)
     EXPECT_THROW(lexer.next(), std::runtime_error);
 }
 
-// ---- Numbers (not implemented yet: remove DISABLED_ once they are) ----
+TEST(Lexer, NullCharacterThrows)
+{
+    using namespace std::string_view_literals;
+
+    for (auto input : {"\0"sv, " \0"sv, "\0[]"sv})
+    {
+        SCOPED_TRACE(testing::Message() << "input size " << input.size());
+        Lexer lexer{input};
+        EXPECT_THROW(lexer.next(), std::runtime_error);
+    }
+
+    Lexer lexer{"[1]\0garbage"sv};
+    expectNext<Token::LBracket>(lexer);
+    expectNext<Token::Number>(lexer);
+    expectNext<Token::RBracket>(lexer);
+    EXPECT_THROW(lexer.next(), std::runtime_error);
+}
+
+// ---- Numbers ----
 
 TEST(Lexer, Integers)
 {

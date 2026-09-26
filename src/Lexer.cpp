@@ -61,10 +61,13 @@ Lexer::Lexer(std::string_view data)
 
 Token Lexer::next()
 {
-    char const c = advancePastWhitespace();
+    skipWhitespace();
+    if (atEnd()) return makeToken(Token::EndOfFile{});
+
+    char const c = m_data[m_pos++];
     switch (c)
     {
-        case NULL_C: return makeToken(Token::EndOfFile{});
+        case NULL_C: throw std::runtime_error("saw invalid null character");
 
         case '{': return makeToken(Token::LBrace{});
         case '}': return makeToken(Token::RBrace{});
@@ -100,11 +103,9 @@ char Lexer::advance()
     return atEnd() ? NULL_C : m_data[m_pos++];
 }
 
-char Lexer::advancePastWhitespace()
+void Lexer::skipWhitespace()
 {
     while (!atEnd() && isWhitespace(m_data[m_pos])) ++m_pos;
-
-    return atEnd() ? NULL_C : m_data[m_pos++];
 }
 
 char Lexer::lookAhead(std::size_t n) const
