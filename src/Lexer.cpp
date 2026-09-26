@@ -246,7 +246,7 @@ Token Lexer::consumeNumber()
 
     if (error == std::errc::result_out_of_range)
     {
-        // If we've entered here, the number is either very large or incredibly small.
+        // If we've entered here, the number is either very large or very small.
         // If number is very small, need to round it to (+-)0.
         //
         // To achieve this break the number down in to mantissa and exponent before the "E"
@@ -290,6 +290,17 @@ Token Lexer::consumeNumber()
             }
             else 
             {
+                // Prevent an overflow when adding exponent and e-value
+                if (e_value > 0 && exponent > std::numeric_limits<long long>::max() - e_value)
+                {
+                    throw std::runtime_error(std::format("number {} is out of range", value_str));
+                }
+                if (e_value < 0 && exponent < std::numeric_limits<long long>::min() - e_value)
+                {
+                    value = value_str.starts_with('-') ? -0.0 : +0.0;
+                    return makeToken(Token::Number{value});
+                }
+
                 exponent += e_value;
             }
         }

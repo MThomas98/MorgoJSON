@@ -295,6 +295,30 @@ TEST(Lexer, NegativeNumberWithExponentTooBigForLongLong)
     EXPECT_TRUE(std::signbit(value));
 }
 
+TEST(Lexer, ExponentAtLongLongLimitsWithMantissaExponent)
+{
+    // The exponents fit in a long long exactly (LLONG_MAX and LLONG_MIN), but
+    // adding the mantissa's own exponent must not overflow and flip the result.
+
+    // 10 = 1.0e1, so the total exponent is LLONG_MAX + 1: hugely large, must throw.
+    for (std::string_view input : {"10e9223372036854775807", "10e+9223372036854775807",
+                                   "-10e9223372036854775807"})
+    {
+        SCOPED_TRACE(input);
+        Lexer lexer{input};
+        EXPECT_THROW(lexer.next(), std::runtime_error);
+    }
+
+    // 0.01 = 1.0e-2, so the total exponent is LLONG_MIN - 2: hugely small, rounds to zero.
+    double const positive = nextAs<Token::Number>("0.01e-9223372036854775808").value;
+    EXPECT_EQ(positive, 0.0);
+    EXPECT_FALSE(std::signbit(positive));
+
+    double const negative = nextAs<Token::Number>("-0.01e-9223372036854775808").value;
+    EXPECT_EQ(negative, 0.0);
+    EXPECT_TRUE(std::signbit(negative));
+}
+
 TEST(Lexer, NumbersInArray)
 {
     expectTokens<Token::LBracket, Token::Number, Token::Comma, Token::Number,
