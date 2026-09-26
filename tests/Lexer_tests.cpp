@@ -332,9 +332,14 @@ TEST(Lexer, SimpleString)
     EXPECT_EQ(nextAs<Token::String>(R"("hello")").value, "hello");
 }
 
-TEST(Lexer, StringKeepsInnerWhitespace)
+TEST(Lexer, StringKeepsInnerSpaces)
 {
-    EXPECT_EQ(nextAs<Token::String>(R"("a b	c")").value, "a b\tc");
+    EXPECT_EQ(nextAs<Token::String>(R"("  a b  ")").value, "  a b  ");
+}
+
+TEST(Lexer, StringContainingPunctuationAndKeywords)
+{
+    EXPECT_EQ(nextAs<Token::String>(R"("{[:,]} true null 1.5")").value, "{[:,]} true null 1.5");
 }
 
 TEST(Lexer, SimpleEscapes)
@@ -342,16 +347,74 @@ TEST(Lexer, SimpleEscapes)
     EXPECT_EQ(nextAs<Token::String>(R"("\"\\\/\b\f\n\r\t")").value, "\"\\/\b\f\n\r\t");
 }
 
+TEST(Lexer, EscapesMixedWithText)
+{
+    EXPECT_EQ(nextAs<Token::String>(R"("\nabc")").value, "\nabc");
+    EXPECT_EQ(nextAs<Token::String>(R"("abc\n")").value, "abc\n");
+    EXPECT_EQ(nextAs<Token::String>(R"("a\"b\"c")").value, "a\"b\"c");
+    EXPECT_EQ(nextAs<Token::String>(R"("C:\\dir\\file")").value, "C:\\dir\\file");
+}
+
+TEST(Lexer, EscapedBackslashBeforeClosingQuote)
+{
+    // The \\ is a complete escape, so the next " ends the string.
+    expectTokens<Token::String, Token::Comma>(R"("\\",)");
+    EXPECT_EQ(nextAs<Token::String>(R"("\\")").value, "\\");
+}
+
+TEST(Lexer, RawUtf8PassesThrough)
+{
+    EXPECT_EQ(nextAs<Token::String>("\"\xC3\xA9\"").value, "\xC3\xA9");                  // é
+    EXPECT_EQ(nextAs<Token::String>("\"\xF0\x9F\x98\x80\"").value, "\xF0\x9F\x98\x80");  // 😀
+}
+
+TEST(Lexer, DeleteCharacterIsAllowedRaw)
+{
+    // Only U+0000 to U+001F must be escaped; DEL (U+007F) is fine.
+    EXPECT_EQ(nextAs<Token::String>("\"\x7F\"").value, "\x7F");
+}
+
 TEST(Lexer, UnicodeEscape)
 {
-    EXPECT_EQ(nextAs<Token::String>(R"("A")").value, "A");
-    EXPECT_EQ(nextAs<Token::String>(R"("é")").value, "\xC3\xA9");      // é
-    EXPECT_EQ(nextAs<Token::String>(R"("€")").value, "\xE2\x82\xAC");  // €
+    EXPECT_EQ(nextAs<Token::String>(R"("\u0041")").value, "A");
+    EXPECT_EQ(nextAs<Token::String>(R"("\u00e9")").value, "\xC3\xA9");      // é (2 bytes)
+    EXPECT_EQ(nextAs<Token::String>(R"("\u20AC")").value, "\xE2\x82\xAC");  // € (3 bytes)
+    EXPECT_EQ(nextAs<Token::String>(R"("\uFFFF")").value, "\xEF\xBF\xBF");  // largest BMP code point
+}
+
+TEST(Lexer, UnicodeEscapeUtf8Boundaries)
+{
+    EXPECT_EQ(nextAs<Token::String>(R"("\u007F")").value, "\x7F");          // last 1-byte
+    EXPECT_EQ(nextAs<Token::String>(R"("\u0080")").value, "\xC2\x80");      // first 2-byte
+    EXPECT_EQ(nextAs<Token::String>(R"("\u07FF")").value, "\xDF\xBF");      // last 2-byte
+    EXPECT_EQ(nextAs<Token::String>(R"("\u0800")").value, "\xE0\xA0\x80");  // first 3-byte
+}
+
+TEST(Lexer, UnicodeEscapeHexIsCaseInsensitive)
+{
+    EXPECT_EQ(nextAs<Token::String>(R"("\u00E9")").value,
+              nextAs<Token::String>(R"("\u00e9")").value);
+    EXPECT_EQ(nextAs<Token::String>(R"("\uaBcD")").value,
+              nextAs<Token::String>(R"("\uABCD")").value);
+}
+
+TEST(Lexer, UnicodeEscapeOfNullCharacter)
+{
+    // \u0000 is valid and must produce a real NUL byte inside the string.
+    EXPECT_EQ(nextAs<Token::String>(R"("a\u0000b")").value, std::string("a\0b", 3));
+}
+
+TEST(Lexer, UnicodeEscapeFollowedByDigits)
+{
+    // Only four hex digits belong to the escape.
+    EXPECT_EQ(nextAs<Token::String>(R"("\u00411")").value, "A1");
 }
 
 TEST(Lexer, SurrogatePair)
 {
-    EXPECT_EQ(nextAs<Token::String>(R"("😀")").value, "\xF0\x9F\x98\x80");  // 😀
+    EXPECT_EQ(nextAs<Token::String>(R"("\uD83D\uDE00")").value, "\xF0\x9F\x98\x80");  // 😀
+    EXPECT_EQ(nextAs<Token::String>(R"("\uD800\uDC00")").value, "\xF0\x90\x80\x80");  // U+10000
+    EXPECT_EQ(nextAs<Token::String>(R"("\uDBFF\uDFFF")").value, "\xF4\x8F\xBF\xBF");  // U+10FFFF
 }
 
 TEST(Lexer, KeyValuePair)
@@ -360,22 +423,63 @@ TEST(Lexer, KeyValuePair)
                  Token::RBrace>(R"({"ok": true})");
 }
 
+TEST(Lexer, AdjacentStringsAreSeparateTokens)
+{
+    // Rejecting this is the parser's job, not the lexer's.
+    expectTokens<Token::String, Token::String>(R"("a""b")");
+}
+
+TEST(Lexer, StringsInArray)
+{
+    Lexer lexer{R"(["a", "b\n"])"};
+    expectNext<Token::LBracket>(lexer);
+    EXPECT_EQ(std::get<Token::String>(lexer.next().value).value, "a");
+    expectNext<Token::Comma>(lexer);
+    EXPECT_EQ(std::get<Token::String>(lexer.next().value).value, "b\n");
+    expectNext<Token::RBracket>(lexer);
+    expectNext<Token::EndOfFile>(lexer);
+}
+
+TEST(Lexer, LongString)
+{
+    std::string const long_text(10'000, 'x');
+    EXPECT_EQ(nextAs<Token::String>("\"" + long_text + "\"").value, long_text);
+}
+
 TEST(Lexer, MalformedStringsThrow)
 {
+    using namespace std::string_view_literals;
     std::string_view const inputs[] = {
+        R"(")",               // lone quote
         R"("abc)",            // unterminated
         R"("abc\)",           // unterminated escape
+        R"("\")",             // escaped quote, then unterminated
         R"("\x")",            // invalid escape
+        R"("\N")",            // escapes are case-sensitive
+        R"("\U0041")",        // escapes are case-sensitive
+        R"("\')",             // not a JSON escape
+        R"("\u)",             // EOF straight after \u
         R"("\u12")",          // too few hex digits
         R"("\uZZZZ")",        // not hex
+        R"("\u-123")",        // not hex
         R"("\uDE00")",        // lone low surrogate
         R"("\uD83D")",        // high surrogate without low
-        "\"a\nb\"",           // raw control character
+        R"("\uD83Dx")",       // high surrogate followed by a normal character
+        R"("\uD83D\u0041")",  // high surrogate followed by a non-surrogate escape
+        R"("\uD83D\uD83D")",  // two high surrogates
+        R"("\uDE00\uD83D")",  // pair in the wrong order
+        R"("\uD83D\n")",      // high surrogate followed by a simple escape
+        "\"a\nb\"",           // raw newline
+        "\"a\rb\"",           // raw carriage return
+        "\"a\tb\"",           // raw tab
+        "\"a\x01z\"",         // raw control character
+        "\"a\x1Fz\"",         // highest control character
+        "\"a\0b\""sv,         // raw NUL
     };
     for (auto input : inputs)
     {
         SCOPED_TRACE(input);
         Lexer lexer{input};
-        EXPECT_THROW(lexer.next(), std::runtime_error);
+        EXPECT_THROW(lexer.next(), std::runtime_error) << "input was:" << input;
     }
 }

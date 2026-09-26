@@ -16,7 +16,7 @@ struct Token
     
     struct Bool { bool value; };
     struct Number { double value; };
-    struct String { std::string value; };
+    struct String { std::string value; }; // NOTE: Storing value as a sequence of UTF-8 bytes
 
     using TokenValueType = std::variant<
         LBrace, RBrace, LBracket, RBracket, Colon, Comma,

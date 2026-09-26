@@ -18,11 +18,15 @@ private:
     char advance();
     char advancePastWhitespace();
 
+    char lookAhead(std::size_t n = 1) const;
+
     Token makeToken(Token::TokenValueType token) const;
 
     void consumeKeyword(std::string_view keyword);
     Token consumeString();
     Token consumeNumber();
+
+    void appendUnicode(std::string& str);
 
     std::string_view m_data;
     std::size_t m_pos = 0;

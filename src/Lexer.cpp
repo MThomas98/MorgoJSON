@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <charconv>
+#include <cstdint>
 #include <format>
 #include <stdexcept>
 #include <string_view>
@@ -17,6 +18,25 @@ namespace
         return c == ' ' || c == '\t' || c == '\n' || c == '\r';
     }
 
+    // JSON requires U+0000 to U+001F to be escaped inside strings.
+    bool isControlChar(char c)
+    {
+        return static_cast<unsigned char>(c) < 0x20;
+    }
+
+    std::size_t findStringStop(std::string_view data, std::size_t pos)
+    {
+        auto const it = std::find_if(data.begin() + pos, data.end(),
+            [](char c) 
+            { 
+                return c == '"' || c == '\\' || isControlChar(c); 
+            });
+
+        return it == data.end() ? 
+            std::string_view::npos : 
+            static_cast<std::size_t>(it - data.begin());
+    }
+
     char parseEscapedChar(char c)
     {
         switch (c)
@@ -29,7 +49,6 @@ namespace
             case 'n':  return '\n';
             case 'r':  return '\r';
             case 't':  return '\t';
-            // TODO: \uXXXX parsing 
             default: 
                 throw std::runtime_error(
                     std::format("invalid escape character \\{}", c));
@@ -88,6 +107,13 @@ char Lexer::advancePastWhitespace()
     return atEnd() ? NULL_C : m_data[m_pos++];
 }
 
+char Lexer::lookAhead(std::size_t n) const
+{
+    if (m_pos + n >= m_data.size()) return NULL_C;
+
+    return m_data[m_pos + n];
+}  
+
 Token Lexer::makeToken(Token::TokenValueType token) const
 {
     return Token {
@@ -110,10 +136,8 @@ void Lexer::consumeKeyword(std::string_view keyword)
 
 Token Lexer::consumeString()
 {
-    constexpr std::string_view STRING_STOP_CHARS = "\"\n\r\\";
-
     std::string value;
-    std::size_t stop_index = m_data.find_first_of(STRING_STOP_CHARS, m_pos);
+    std::size_t stop_index = findStringStop(m_data, m_pos);
     while (stop_index != std::string_view::npos)
     {
         value.append(m_data.substr(m_pos, stop_index - m_pos));
@@ -125,9 +149,11 @@ Token Lexer::consumeString()
             return makeToken(Token::String{std::move(value)});
         }
 
-        if (m_data[m_pos] == '\n' || m_data[m_pos] == '\r')
+        if (isControlChar(m_data[m_pos]))
         {
-            throw std::runtime_error("unexpectedly saw newline in string");
+            throw std::runtime_error(std::format(
+                "unexpectedly saw control character U+{:04X} in string",
+                static_cast<unsigned char>(m_data[m_pos])));
         }
 
         ++m_pos; // Move past the escape char
@@ -136,9 +162,16 @@ Token Lexer::consumeString()
             throw std::runtime_error("string not terminated");
         }
 
-        value += parseEscapedChar(advance());
+        if (m_data[m_pos] == 'u')
+        {
+            appendUnicode(value);
+        }
+        else 
+        {
+            value += parseEscapedChar(advance());
+        }
 
-        stop_index = m_data.find_first_of(STRING_STOP_CHARS, m_pos);
+        stop_index = findStringStop(m_data, m_pos);
     }
 
     throw std::runtime_error("string not terminated");
@@ -157,7 +190,7 @@ Token Lexer::consumeNumber()
             if (stop_index == m_pos)
             {
                 throw std::runtime_error(atEnd() ?
-                    std::format("unexpected EOF in number") :
+                    std::format("saw unexpected EOF in number") :
                     std::format("saw unexpected character {} in number", m_data[m_pos]));
             }
 
@@ -216,9 +249,9 @@ Token Lexer::consumeNumber()
         // If number is very small, need to round it to (+-)0.
         //
         // To achieve this break the number down in to mantissa and exponent before the "E"
-        // (if it exists), then add the exponent given after E.
+        // (if it exists), then add the exponent value given after E.
         // If this comes out to less than 0, then the number must be small and 
-        // we cna round to 0.
+        // we can round to 0.
 
         std::size_t const e_index = std::min(value_str.find_first_of("eE"), value_str.size());
         std::string_view mantissa = value_str.substr(0, e_index);
@@ -272,4 +305,89 @@ Token Lexer::consumeNumber()
     }
 
     return makeToken(Token::Number{value});
+}
+
+void 
+Lexer::appendUnicode(std::string& str)
+{
+    constexpr std::string_view HEX_CHARS = "0123456789ABCDEF";
+    
+    ++m_pos; // Move past u
+
+    std::string_view hex_str = m_data.substr(m_pos, 4);
+    if (hex_str.size() != 4)
+    {
+        throw std::runtime_error("not enough characters in unicode hex sequence");
+    }
+
+    std::uint32_t code_point = 0;
+    auto const [ptr, error] = std::from_chars(hex_str.data(), hex_str.data() + 4, code_point, 16);
+    if (error != std::errc{} || ptr != hex_str.data() + 4)
+    {
+        throw std::runtime_error("invalid hex digit in unicode hex sequence");
+    }
+
+    m_pos += 4; // Move past the hex digits
+
+    // High surrogate - expect a low surrogate
+    if (code_point >= 0xD800 && code_point <= 0xDBFF)
+    {
+        if (m_data.substr(m_pos, 2) != "\\u")
+        {
+            throw std::runtime_error("expected low surrogate unicode hex sequence");
+        }
+
+        hex_str = m_data.substr(m_pos + 2, 4);
+        if (hex_str.size() != 4)
+        {
+            throw std::runtime_error("not enough characters in unicode hex sequence");
+        }
+
+        std::uint16_t high_surrogate = static_cast<std::uint16_t>(code_point);
+        std::uint16_t low_surrogate = 0;
+        auto const [low_ptr, low_error] = std::from_chars(hex_str.data(), hex_str.data() + 4, low_surrogate, 16);
+        if (low_error != std::errc{} || low_ptr != hex_str.data() + 4)
+        {
+            throw std::runtime_error("invalid hex digit in unicode hex sequence");
+        }
+
+        if (low_surrogate < 0xDC00 || low_surrogate > 0xDFFF)
+        {
+            throw std::runtime_error("unicode sequence after high surrogate not a low surrogate");
+        }
+
+        m_pos += 6; // Move past \u and the hex digits
+
+        code_point = 0x10000 + ((high_surrogate - 0xD800) << 10) + (low_surrogate - 0xDC00);
+    }
+    // Low surrogate before a high surrogate - invalid
+    else if (code_point >= 0xDC00 && code_point <= 0xDFFF)
+    {
+        throw std::runtime_error("saw low surrogate unicode value before a high surrogate");
+    }
+
+    // Convert code_point to UTF-8 (as that's what our string token wants)
+    // and append.
+    if (code_point < 0x80)
+    {
+        str += static_cast<char>(code_point);
+    }
+    else if (code_point < 0x800)
+    {
+        str += static_cast<char>(0xC0 | (code_point >> 6));
+        str += static_cast<char>(0x80 | (0x3F & code_point));
+    }
+    else if (code_point < 0x10000)
+    {
+        str += static_cast<char>(0xE0 | (code_point >> 12));
+        str += static_cast<char>(0x80 | (0x3F & (code_point >> 6)));
+        str += static_cast<char>(0x80 | (0x3F & code_point));
+    }
+    else
+    {
+        str += static_cast<char>(0xF0 | (code_point >> 18));
+        str += static_cast<char>(0x80 | (0x3F & (code_point >> 12)));
+        str += static_cast<char>(0x80 | (0x3F & (code_point >> 6)));
+        str += static_cast<char>(0x80 | (0x3F & code_point));
+    }
 }
