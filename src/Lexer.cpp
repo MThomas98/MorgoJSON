@@ -21,6 +21,15 @@ namespace
         return static_cast<unsigned char>(c) < 0x20;
     }
 
+    std::string describeChar(char c)
+    {
+        auto const byte = static_cast<unsigned char>(c);
+        if (byte >= 0x80) return std::format("byte 0x{:02X}", byte);
+        if (byte < 0x20 || byte == 0x7F) return std::format("U+{:04X}", byte);
+
+        return std::format("'{}'", c);
+    }
+
     std::size_t findStringStop(std::string_view data, std::size_t pos)
     {
         auto const it = std::find_if(data.begin() + pos, data.end(),
@@ -176,8 +185,7 @@ Token Lexer::next()
             return consumeNumber();
 
         default:
-            error(
-                std::format("unexpected character '{}'", c));
+            error(std::format("unexpected character {}", describeChar(c)));
     }
 }
 
@@ -261,8 +269,8 @@ Token Lexer::consumeString()
         if (isControlChar(m_data[m_pos]))
         {
             error(std::format(
-                "unexpectedly saw control character U+{:04X} in string",
-                static_cast<unsigned char>(m_data[m_pos])));
+                "unexpectedly saw control character {} in string",
+                describeChar(m_data[m_pos])));
         }
 
         ++m_pos; // Move past the backslash
@@ -281,7 +289,7 @@ Token Lexer::consumeString()
             std::optional<char> const escaped = parseEscapedChar(escape_char);
             if (!escaped)
             {
-                error(std::format("invalid escape character \\{}", escape_char));
+                error(std::format("invalid escape character {} after backslash", describeChar(escape_char)));
             }
 
             value += *escaped;
@@ -308,7 +316,7 @@ Token Lexer::consumeNumber()
             {
                 error(atEnd() ?
                     std::format("saw unexpected EOF in number") :
-                    std::format("saw unexpected character {} in number", m_data[m_pos]));
+                    std::format("saw unexpected character {} in number", describeChar(m_data[m_pos])));
             }
 
             m_pos = stop_index;

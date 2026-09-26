@@ -137,6 +137,40 @@ TEST(Lexer, UnexpectedCharacterThrows)
     }
 }
 
+TEST(Lexer, ErrorMessagesDescribeCharactersReadably)
+{
+    // Printable characters are quoted, control characters are shown as code
+    // points, and non-ASCII bytes in hex, so the message never contains raw bytes.
+    struct Case { std::string_view input; std::string_view expected; };
+    Case const cases[] = {
+        {"@",            "unexpected character '@'"},
+        {"\x01",         "unexpected character U+0001"},
+        {"\x7F",         "unexpected character U+007F"},
+        {"\xC3\xA9",     "unexpected character byte 0xC3"},
+        {"\"a\tb\"",     "control character U+0009 in string"},
+        {R"("\q")",      "invalid escape character 'q' after backslash"},
+        {"\"\\\x01\"",   "invalid escape character U+0001 after backslash"},
+        {"-x",           "unexpected character 'x' in number"},
+        {"1.\xC3",       "unexpected character byte 0xC3 in number"},
+    };
+
+    for (auto const& [input, expected] : cases)
+    {
+        SCOPED_TRACE(testing::Message() << "expected: " << expected);
+        Lexer lexer{input};
+        try
+        {
+            lexer.next();
+            ADD_FAILURE() << "expected a LexerError";
+        }
+        catch (LexerError const& e)
+        {
+            EXPECT_NE(std::string_view{e.what()}.find(expected), std::string_view::npos)
+                << "message was: " << e.what();
+        }
+    }
+}
+
 TEST(Lexer, ErrorsAreLexerErrors)
 {
     // One input from each part of the lexer
