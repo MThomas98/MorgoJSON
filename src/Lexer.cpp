@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <format>
 #include <limits>
-#include <optional>
 #include <utility>
 
 namespace
@@ -156,6 +155,28 @@ Lexer::Lexer(std::string_view data)
     : m_data(data) {}
 
 Token Lexer::next()
+{
+    if (m_peeked)
+    {
+        Token token = std::move(*m_peeked);
+        m_peeked.reset();
+        return token;
+    }
+
+    return lex();
+}
+
+Token const& Lexer::peek()
+{
+    if (!m_peeked)
+    {
+        m_peeked = lex();
+    }
+
+    return *m_peeked;
+}
+
+Token Lexer::lex()
 {
     skipWhitespace();
     m_token_start = m_pos;

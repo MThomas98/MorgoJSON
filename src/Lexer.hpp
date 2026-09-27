@@ -2,6 +2,7 @@
 
 #include "Tokens.hpp"
 
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -22,10 +23,19 @@ class Lexer
 public:
     explicit Lexer(std::string_view data);
 
+    // Returns the next token and moves past it. After EndOfFile, keeps
+    // returning EndOfFile.
     Token next();
-    Token peek();
+
+    // Returns the next token without moving past it, so the following next()
+    // returns the same token. The reference is valid until the next call to
+    // next().
+    Token const& peek();
 
 private:
+    // Scans the next token from the input, ignoring any peeked token.
+    Token lex();
+
     bool atEnd() const;
     void skipWhitespace();
 
@@ -52,4 +62,6 @@ private:
     std::size_t m_row = 1;          // 1-based, like editors
     std::size_t m_line_start = 0;   // Offset of the first character on the current line
     std::size_t m_token_start = 0;  // Offset of the first character of the current token
+
+    std::optional<Token> m_peeked;  // Token scanned by peek() but not yet returned by next()
 };

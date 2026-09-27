@@ -53,6 +53,48 @@ TEST(Lexer, EndOfFileRepeats)
     expectNext<Token::EndOfFile>(lexer);
 }
 
+// ---- Peeking ----
+
+TEST(Lexer, PeekDoesNotConsume)
+{
+    Lexer lexer{"[1]"};
+    EXPECT_TRUE(lexer.peek().isType<Token::LBracket>());
+    EXPECT_TRUE(lexer.peek().isType<Token::LBracket>());  // peeking twice gives the same token
+    expectNext<Token::LBracket>(lexer);
+
+    EXPECT_TRUE(lexer.peek().isType<Token::Number>());
+    expectNext<Token::Number>(lexer);
+    expectNext<Token::RBracket>(lexer);                   // next() without a peek still works
+
+    EXPECT_TRUE(lexer.peek().isType<Token::EndOfFile>());
+    expectNext<Token::EndOfFile>(lexer);
+    EXPECT_TRUE(lexer.peek().isType<Token::EndOfFile>()); // EndOfFile repeats when peeking too
+}
+
+TEST(Lexer, PeekKeepsPayloadAndPosition)
+{
+    Lexer lexer{"\n  \"abc\""};
+
+    Token const& peeked = lexer.peek();
+    ASSERT_TRUE(peeked.isType<Token::String>());
+    EXPECT_EQ(std::get<Token::String>(peeked.value).value, "abc");
+    EXPECT_EQ(peeked.row, 2u);
+    EXPECT_EQ(peeked.col, 3u);
+
+    Token const token = lexer.next();
+    ASSERT_TRUE(token.isType<Token::String>());
+    EXPECT_EQ(std::get<Token::String>(token.value).value, "abc");
+    EXPECT_EQ(token.row, 2u);
+    EXPECT_EQ(token.col, 3u);
+}
+
+TEST(Lexer, PeekThrowsOnInvalidInput)
+{
+    Lexer lexer{"[@"};
+    expectNext<Token::LBracket>(lexer);
+    EXPECT_THROW(lexer.peek(), LexerError);
+}
+
 // ---- Punctuation ----
 
 TEST(Lexer, SingleCharacterTokens)
