@@ -8,7 +8,8 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(morgojson_tests 
     tests.cpp 
-    Lexer_tests.cpp)
+    Lexer_tests.cpp
+    Parser_tests.cpp)
 target_link_libraries(morgojson_tests PRIVATE 
     MorgoJSON::morgojson GTest::gtest_main)
 

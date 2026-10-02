@@ -135,7 +135,7 @@ namespace
 }
 
 
-LexerError::LexerError(std::string const& message, std::size_t col, std::size_t row)
+LexerError::LexerError(std::string_view message, std::size_t col, std::size_t row)
     : std::runtime_error(std::format("({}:{}): {}", row, col, message))
     , m_col(col)
     , m_row(row) {}
@@ -215,12 +215,12 @@ std::size_t Lexer::colAt(std::size_t pos) const
     return pos - m_line_start + 1;
 }
 
-void Lexer::error(std::string const& message) const
+void Lexer::error(std::string_view message) const
 {
     errorAt(m_pos, message);
 }
 
-void Lexer::errorAt(std::size_t pos, std::string const& message) const
+void Lexer::errorAt(std::size_t pos, std::string_view message) const
 {
     throw LexerError(message, colAt(pos), m_row);
 }

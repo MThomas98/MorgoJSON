@@ -1,6 +1,7 @@
 add_library(morgojson 
     JSONObject.cpp
-    Lexer.cpp)
+    Lexer.cpp
+    Parser.cpp)
 
 add_library(MorgoJSON::morgojson ALIAS morgojson)
 
