@@ -11,7 +11,7 @@ namespace
 {
     bool isWhitespace(char c)
     {
-        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+        return c == ' ' || c == '\t' || c == '\n' /*|| c == '\r'*/;
     }
 
     // JSON requires U+0000 to U+001F to be escaped inside strings.
