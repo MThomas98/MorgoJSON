@@ -1,5 +1,5 @@
 #include "Parser.hpp"
-#include "JSONValue.hpp"
+#include "Value.hpp"
 
 #include <format>
 
@@ -23,9 +23,9 @@ std::size_t ParserError::row() const noexcept
 Parser::Parser(std::string_view data)
     : m_lexer(data) {}
 
-JSONValue Parser::parse()
+Value Parser::parse()
 {
-    JSONValue value = parseNext();
+    Value value = parseNext();
 
     m_current_token = m_lexer.next();
     expectTokenType<Token::EndOfFile>();
@@ -33,7 +33,7 @@ JSONValue Parser::parse()
     return value;
 }
 
-JSONValue Parser::parseNext()
+Value Parser::parseNext()
 {
     m_current_token = m_lexer.next();
 
@@ -49,25 +49,25 @@ JSONValue Parser::parseNext()
         m_current_token);
 }
 
-JSONValue Parser::parseLiteral()
+Value Parser::parseLiteral()
 {
     if (auto* typed_token = getTypedCurrentToken<Token::Bool>())
-        return JSONValue{JSONValue::Bool{typed_token->value}};
+        return Value{Value::Bool{typed_token->value}};
     if (auto* typed_token = getTypedCurrentToken<Token::Number>())
-        return JSONValue{JSONValue::Number{typed_token->value}};
+        return Value{Value::Number{typed_token->value}};
     if (auto* typed_token = getTypedCurrentToken<Token::String>())
-        return JSONValue{JSONValue::String{std::move(typed_token->value)}};
+        return Value{Value::String{std::move(typed_token->value)}};
     if (m_current_token.isType<Token::Null>())
-        return JSONValue{JSONValue::Null{}};
+        return Value{Value::Null{}};
 
     error(
         std::format("expected a literal, saw {}", m_current_token.getTypeName()), 
         m_current_token);
 }
 
-JSONValue Parser::parseObject()
+Value Parser::parseObject()
 {
-    auto object_map = std::make_unique<JSONValue::Object::ObjectMap>();
+    auto object_map = std::make_unique<Value::Object::ObjectMap>();
 
     auto const addKeyValuePair = 
         [this, &object_map]()
@@ -78,7 +78,7 @@ JSONValue Parser::parseObject()
             m_current_token = m_lexer.next();
             expectTokenType<Token::Colon>();
 
-            JSONValue value = parseNext();
+            Value value = parseNext();
             
             // Last duplicate key wins
             object_map->insert_or_assign(std::move(key), std::move(value));
@@ -88,7 +88,7 @@ JSONValue Parser::parseObject()
     if (m_lexer.peek().isType<Token::RBrace>())
     {
         m_current_token = m_lexer.next();
-        return JSONValue{JSONValue::Object{std::move(object_map)}};
+        return Value{Value::Object{std::move(object_map)}};
     }
 
     do 
@@ -100,18 +100,18 @@ JSONValue Parser::parseObject()
 
     expectTokenType<Token::RBrace>();
 
-    return JSONValue{JSONValue::Object{std::move(object_map)}};
+    return Value{Value::Object{std::move(object_map)}};
 }
 
-JSONValue Parser::parseArray()
+Value Parser::parseArray()
 {
-    std::vector<JSONValue> values;
+    std::vector<Value> values;
 
     // Empty array
     if (m_lexer.peek().isType<Token::RBracket>())
     {
         m_current_token = m_lexer.next();
-        return JSONValue{JSONValue::Array{std::move(values)}};
+        return Value{Value::Array{std::move(values)}};
     }
 
     do
@@ -123,7 +123,7 @@ JSONValue Parser::parseArray()
 
     expectTokenType<Token::RBracket>();
 
-    return JSONValue{JSONValue::Array{std::move(values)}};
+    return Value{Value::Array{std::move(values)}};
 }
 
 template <typename T>

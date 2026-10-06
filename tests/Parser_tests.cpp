@@ -9,14 +9,14 @@
 
 namespace
 {
-    JSONValue parse(std::string_view input)
+    Value parse(std::string_view input)
     {
         Parser parser{input};
         return parser.parse();
     }
 
     template <typename T>
-    T const& as(JSONValue const& json_value)
+    T const& as(Value const& json_value)
     {
         EXPECT_TRUE(std::holds_alternative<T>(json_value.value))
             << "got variant index " << json_value.value.index();
@@ -32,14 +32,14 @@ namespace
         return std::get<T>(std::move(json_value.value));
     }
 
-    JSONValue::Object::ObjectMap const& membersOf(JSONValue const& json_value)
+    Value::Object::ObjectMap const& membersOf(Value const& json_value)
     {
-        return *as<JSONValue::Object>(json_value).members;
+        return *as<Value::Object>(json_value).members;
     }
 
-    std::vector<JSONValue> const& valuesOf(JSONValue const& json_value)
+    std::vector<Value> const& valuesOf(Value const& json_value)
     {
-        return as<JSONValue::Array>(json_value).values;
+        return as<Value::Array>(json_value).values;
     }
 
     void expectThrows(std::string_view input)
@@ -68,28 +68,28 @@ namespace
 
 TEST(Parser, ParsesNull)
 {
-    parseAs<JSONValue::Null>("null");
+    parseAs<Value::Null>("null");
 }
 
 TEST(Parser, ParsesBools)
 {
-    EXPECT_TRUE(parseAs<JSONValue::Bool>("true").value);
-    EXPECT_FALSE(parseAs<JSONValue::Bool>("false").value);
+    EXPECT_TRUE(parseAs<Value::Bool>("true").value);
+    EXPECT_FALSE(parseAs<Value::Bool>("false").value);
 }
 
 TEST(Parser, ParsesNumber)
 {
-    EXPECT_DOUBLE_EQ(parseAs<JSONValue::Number>("-12.5e1").value, -125.0);
+    EXPECT_DOUBLE_EQ(parseAs<Value::Number>("-12.5e1").value, -125.0);
 }
 
 TEST(Parser, ParsesString)
 {
-    EXPECT_EQ(parseAs<JSONValue::String>(R"("hello\nworld")").value, "hello\nworld");
+    EXPECT_EQ(parseAs<Value::String>(R"("hello\nworld")").value, "hello\nworld");
 }
 
 TEST(Parser, LiteralSurroundedByWhitespace)
 {
-    EXPECT_DOUBLE_EQ(parseAs<JSONValue::Number>(" \t\r\n 7 \n").value, 7.0);
+    EXPECT_DOUBLE_EQ(parseAs<Value::Number>(" \t\r\n 7 \n").value, 7.0);
 }
 
 // ---- Objects ----
@@ -106,7 +106,7 @@ TEST(Parser, ObjectWithOneMember)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 1u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("a")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("a")).value, 1.0);
 }
 
 TEST(Parser, ObjectWithEveryLiteralType)
@@ -115,11 +115,11 @@ TEST(Parser, ObjectWithEveryLiteralType)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 5u);
-    as<JSONValue::Null>(members.at("n"));
-    EXPECT_TRUE(as<JSONValue::Bool>(members.at("t")).value);
-    EXPECT_FALSE(as<JSONValue::Bool>(members.at("f")).value);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("d")).value, 2.5);
-    EXPECT_EQ(as<JSONValue::String>(members.at("s")).value, "text");
+    as<Value::Null>(members.at("n"));
+    EXPECT_TRUE(as<Value::Bool>(members.at("t")).value);
+    EXPECT_FALSE(as<Value::Bool>(members.at("f")).value);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("d")).value, 2.5);
+    EXPECT_EQ(as<Value::String>(members.at("s")).value, "text");
 }
 
 TEST(Parser, ObjectKeysAreDecoded)
@@ -134,9 +134,9 @@ TEST(Parser, ObjectWithoutWhitespace)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 3u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("a")).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("b")).value, 2.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("c")).value, 3.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("a")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("b")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("c")).value, 3.0);
 }
 
 TEST(Parser, ObjectAcrossLines)
@@ -151,7 +151,7 @@ TEST(Parser, DuplicateKeyLastWins)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 1u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("a")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("a")).value, 2.0);
 }
 
 TEST(Parser, NestedObject)
@@ -159,7 +159,7 @@ TEST(Parser, NestedObject)
     auto const json_value = parse(R"({"outer": {"inner": {"leaf": true}}})");
     auto const& inner = membersOf(membersOf(json_value).at("outer")).at("inner");
 
-    EXPECT_TRUE(as<JSONValue::Bool>(membersOf(inner).at("leaf")).value);
+    EXPECT_TRUE(as<Value::Bool>(membersOf(inner).at("leaf")).value);
 }
 
 TEST(Parser, MemberAfterNestedObject)
@@ -168,8 +168,8 @@ TEST(Parser, MemberAfterNestedObject)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 2u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(membersOf(members.at("a")).at("b")).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("c")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(membersOf(members.at("a")).at("b")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("c")).value, 2.0);
 }
 
 TEST(Parser, EmptyNestedObject)
@@ -179,7 +179,7 @@ TEST(Parser, EmptyNestedObject)
 
     ASSERT_EQ(members.size(), 2u);
     EXPECT_TRUE(membersOf(members.at("a")).empty());
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("b")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("b")).value, 1.0);
 }
 
 TEST(Parser, EmptyStringKey)
@@ -188,7 +188,7 @@ TEST(Parser, EmptyStringKey)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 1u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("")).value, 1.0);
 }
 
 TEST(Parser, ObjectKeysAreCaseSensitive)
@@ -197,9 +197,9 @@ TEST(Parser, ObjectKeysAreCaseSensitive)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 3u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("key")).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("Key")).value, 2.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("KEY")).value, 3.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("key")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("Key")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("KEY")).value, 3.0);
 }
 
 TEST(Parser, ObjectKeysCanLookLikeOtherTokens)
@@ -208,13 +208,13 @@ TEST(Parser, ObjectKeysCanLookLikeOtherTokens)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 7u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("null")).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("true")).value, 2.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("12")).value, 3.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("{")).value, 4.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at(":")).value, 5.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at(",")).value, 6.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at(" ")).value, 7.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("null")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("true")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("12")).value, 3.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("{")).value, 4.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at(":")).value, 5.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at(",")).value, 6.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at(" ")).value, 7.0);
 }
 
 TEST(Parser, ObjectKeysWithUnicodeEscapes)
@@ -239,7 +239,7 @@ TEST(Parser, EscapedAndUnescapedKeysAreDuplicates)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 1u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("a")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("a")).value, 2.0);
 }
 
 TEST(Parser, DuplicateKeyCanChangeType)
@@ -248,7 +248,7 @@ TEST(Parser, DuplicateKeyCanChangeType)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 1u);
-    EXPECT_EQ(as<JSONValue::String>(members.at("a")).value, "text");
+    EXPECT_EQ(as<Value::String>(members.at("a")).value, "text");
 }
 
 TEST(Parser, DuplicateKeysInNestedObjectsAreIndependent)
@@ -257,8 +257,8 @@ TEST(Parser, DuplicateKeysInNestedObjectsAreIndependent)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 2u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("a")).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(membersOf(members.at("inner")).at("a")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("a")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(membersOf(members.at("inner")).at("a")).value, 2.0);
 }
 
 TEST(Parser, ObjectStringValuesAreDecoded)
@@ -267,9 +267,9 @@ TEST(Parser, ObjectStringValuesAreDecoded)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 3u);
-    EXPECT_TRUE(as<JSONValue::String>(members.at("empty")).value.empty());
-    EXPECT_EQ(as<JSONValue::String>(members.at("escaped")).value, "tab\there");
-    EXPECT_EQ(as<JSONValue::String>(members.at("braces")).value, R"({"a": 1})");
+    EXPECT_TRUE(as<Value::String>(members.at("empty")).value.empty());
+    EXPECT_EQ(as<Value::String>(members.at("escaped")).value, "tab\there");
+    EXPECT_EQ(as<Value::String>(members.at("braces")).value, R"({"a": 1})");
 }
 
 TEST(Parser, ObjectWithWhitespaceAroundEveryToken)
@@ -288,8 +288,8 @@ TEST(Parser, SiblingNestedObjects)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), 3u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(membersOf(members.at("a")).at("x")).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(membersOf(members.at("b")).at("x")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(membersOf(members.at("a")).at("x")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(membersOf(members.at("b")).at("x")).value, 2.0);
     EXPECT_TRUE(membersOf(members.at("c")).empty());
 }
 
@@ -305,13 +305,13 @@ TEST(Parser, DeeplyNestedObject)
 
     auto const json_value = parse(input);
 
-    JSONValue const* current = &json_value;
+    Value const* current = &json_value;
     for (int level = 0; level < depth; ++level)
     {
         ASSERT_EQ(membersOf(*current).size(), 1u);
         current = &membersOf(*current).at("k");
     }
-    as<JSONValue::Null>(*current);
+    as<Value::Null>(*current);
 }
 
 TEST(Parser, ObjectWithManyMembers)
@@ -331,8 +331,8 @@ TEST(Parser, ObjectWithManyMembers)
     auto const& members = membersOf(json_value);
 
     ASSERT_EQ(members.size(), static_cast<std::size_t>(count));
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("key0")).value, 0.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(members.at("key199")).value, 199.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("key0")).value, 0.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(members.at("key199")).value, 199.0);
 }
 
 // ---- Arrays ----
@@ -349,7 +349,7 @@ TEST(Parser, ArrayWithOneValue)
     auto const& values = valuesOf(json_value);
 
     ASSERT_EQ(values.size(), 1u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[0]).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[0]).value, 1.0);
 }
 
 TEST(Parser, ArrayKeepsOrder)
@@ -358,10 +358,10 @@ TEST(Parser, ArrayKeepsOrder)
     auto const& values = valuesOf(json_value);
 
     ASSERT_EQ(values.size(), 4u);
-    as<JSONValue::Null>(values[0]);
-    EXPECT_TRUE(as<JSONValue::Bool>(values[1]).value);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[2]).value, 2.0);
-    EXPECT_EQ(as<JSONValue::String>(values[3]).value, "three");
+    as<Value::Null>(values[0]);
+    EXPECT_TRUE(as<Value::Bool>(values[1]).value);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[2]).value, 2.0);
+    EXPECT_EQ(as<Value::String>(values[3]).value, "three");
 }
 
 TEST(Parser, NestedArrays)
@@ -372,8 +372,8 @@ TEST(Parser, NestedArrays)
     ASSERT_EQ(values.size(), 3u);
     EXPECT_TRUE(valuesOf(values[0]).empty());
     ASSERT_EQ(valuesOf(values[1]).size(), 2u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(valuesOf(valuesOf(values[1])[1])[0]).value, 2.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[2]).value, 3.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(valuesOf(valuesOf(values[1])[1])[0]).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[2]).value, 3.0);
 }
 
 TEST(Parser, ArrayInsideObject)
@@ -383,7 +383,7 @@ TEST(Parser, ArrayInsideObject)
 
     ASSERT_EQ(members.size(), 2u);
     EXPECT_EQ(valuesOf(members.at("list")).size(), 2u);
-    EXPECT_TRUE(as<JSONValue::Bool>(members.at("after")).value);
+    EXPECT_TRUE(as<Value::Bool>(members.at("after")).value);
 }
 
 TEST(Parser, ObjectsInsideArray)
@@ -392,9 +392,9 @@ TEST(Parser, ObjectsInsideArray)
     auto const& values = valuesOf(json_value);
 
     ASSERT_EQ(values.size(), 3u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(membersOf(values[0]).at("a")).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(membersOf(values[0]).at("a")).value, 1.0);
     EXPECT_TRUE(membersOf(values[1]).empty());
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(membersOf(values[2]).at("b")).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(membersOf(values[2]).at("b")).value, 2.0);
 }
 
 TEST(Parser, ArrayWithoutWhitespace)
@@ -403,9 +403,9 @@ TEST(Parser, ArrayWithoutWhitespace)
     auto const& values = valuesOf(json_value);
 
     ASSERT_EQ(values.size(), 3u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[0]).value, 1.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[1]).value, 2.0);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[2]).value, 3.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[0]).value, 1.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[1]).value, 2.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[2]).value, 3.0);
 }
 
 TEST(Parser, ArrayAcrossLines)
@@ -426,15 +426,15 @@ TEST(Parser, ArrayStringsAreDecoded)
     auto const& values = valuesOf(json_value);
 
     ASSERT_EQ(values.size(), 2u);
-    EXPECT_EQ(as<JSONValue::String>(values[0]).value, "A\n");
-    EXPECT_TRUE(as<JSONValue::String>(values[1]).value.empty());
+    EXPECT_EQ(as<Value::String>(values[0]).value, "A\n");
+    EXPECT_TRUE(as<Value::String>(values[1]).value.empty());
 }
 
 TEST(Parser, DeeplyNestedArray)
 {
     auto json_value = parse("[[[[[]]]]]");
 
-    JSONValue const* current = &json_value;
+    Value const* current = &json_value;
     for (int depth = 0; depth < 4; ++depth)
     {
         ASSERT_EQ(valuesOf(*current).size(), 1u);
@@ -450,7 +450,7 @@ TEST(Parser, ValueAfterNestedArray)
 
     ASSERT_EQ(values.size(), 2u);
     EXPECT_EQ(valuesOf(values[0]).size(), 2u);
-    EXPECT_DOUBLE_EQ(as<JSONValue::Number>(values[1]).value, 3.0);
+    EXPECT_DOUBLE_EQ(as<Value::Number>(values[1]).value, 3.0);
 }
 
 TEST(Parser, ArrayOfObjectsWithArrays)
@@ -461,7 +461,7 @@ TEST(Parser, ArrayOfObjectsWithArrays)
     ASSERT_EQ(list.size(), 2u);
     auto const& deep = valuesOf(membersOf(list[1]).at("deep"));
     ASSERT_EQ(deep.size(), 1u);
-    EXPECT_TRUE(as<JSONValue::Bool>(deep[0]).value);
+    EXPECT_TRUE(as<Value::Bool>(deep[0]).value);
 }
 
 TEST(Parser, UnterminatedArrayThrows)
@@ -645,7 +645,7 @@ TEST(Parser, TrailingWhitespaceIsAllowed)
 {
     EXPECT_TRUE(membersOf(parse("{} \t\r\n")).empty());
     EXPECT_TRUE(valuesOf(parse("[]\n\n")).empty());
-    parseAs<JSONValue::Null>("null ");
+    parseAs<Value::Null>("null ");
 }
 
 TEST(Parser, SecondTopLevelValueThrows)

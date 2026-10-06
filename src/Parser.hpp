@@ -1,6 +1,6 @@
 #pragma once
 
-#include "JSONValue.hpp"
+#include "Value.hpp"
 #include "Lexer.hpp"
 
 #include <string_view>
@@ -22,14 +22,14 @@ class Parser
 public:
     explicit Parser(std::string_view data);
 
-    JSONValue parse();
+    Value parse();
 
 private:
-    JSONValue parseNext();
+    Value parseNext();
 
-    JSONValue parseLiteral();
-    JSONValue parseObject();
-    JSONValue parseArray();
+    Value parseLiteral();
+    Value parseObject();
+    Value parseArray();
 
     template <typename T>
     T* getTypedCurrentToken();
